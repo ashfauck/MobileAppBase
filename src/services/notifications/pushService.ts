@@ -265,7 +265,12 @@ export async function handleNotificationEvent(event: NotifeeEvent): Promise<void
         {
           title: notification?.title,
           body: notification?.body,
-          android: { channelId: ANDROID_CHANNELS.REMINDERS },
+          android: {
+            channelId: ANDROID_CHANNELS.REMINDERS,
+            // Android silently drops a notification with no small icon.
+            smallIcon: 'ic_launcher',
+            pressAction: { id: NOTIFICATION_ACTIONS.PRESS, launchActivity: 'default' },
+          },
           ios: { categoryId: NOTIFICATION_CATEGORIES.REMINDER },
           data,
         },
