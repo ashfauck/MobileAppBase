@@ -1,0 +1,21 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "types": ["jest"],
+
+    /* Stricter than the RN default. Catching these at compile time is the whole
+       reason for using TypeScript on a codebase you'll clone repeatedly. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": false,
+
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*", "__tests__/**/*", "*.ts", "*.tsx", "*.js"],
+  "exclude": ["node_modules", "ios", "android", "vendor", "**/Pods"]
+}

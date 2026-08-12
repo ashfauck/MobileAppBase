@@ -1,0 +1,188 @@
+name: CI
+
+# Fast feedback on every PR: typecheck, lint, tests, and a debug build of each
+# platform. Store deployments live in release.yml.
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+# A new push to the same PR cancels the previous run — no point paying for a
+# build of code that's already superseded.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22.20.0'
+  JAVA_VERSION: '17'
+
+jobs:
+  # ---------------------------------------------------------------- checks --
+  static-analysis:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test -- --coverage --ci --maxWorkers=2
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  # --------------------------------------------------------------- android --
+  android-build:
+    name: Android (${{ matrix.env }} debug)
+    runs-on: ubuntu-latest
+    needs: static-analysis
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # A PR only needs to prove dev compiles; main also proves staging.
+        env: [dev]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write google-services.json
+        # Base64-encoded so the JSON survives GitHub's secret masking intact.
+        # Skipped when unset so a fork PR still builds (Firebase just stays off).
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON_DEV }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            mkdir -p android/app/src/${{ matrix.env }}
+            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/src/${{ matrix.env }}/google-services.json
+            echo "Wrote google-services.json"
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_DEV not set — building without Firebase."
+          fi
+
+      - name: Assemble debug APK
+        env:
+          ENVFILE: .env.${{ matrix.env }}
+        run: |
+          cd android
+          ./gradlew assemble${{ matrix.env == 'dev' && 'Dev' || 'Staging' }}Debug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.env }}-debug
+          path: android/app/build/outputs/apk/**/*.apk
+          retention-days: 7
+
+  # ------------------------------------------------------------------- ios --
+  ios-build:
+    name: iOS (${{ matrix.env }} debug)
+    # macOS minutes are ~10x the cost of Linux, so this job is deliberately
+    # narrow: one environment, simulator only, no signing.
+    runs-on: macos-15
+    needs: static-analysis
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode_26.app
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-
+
+      - name: Install pods
+        # LANG must be set or CocoaPods crashes with an Encoding::CompatibilityError
+        # on any repository path containing non-ASCII characters or spaces.
+        env:
+          LANG: en_US.UTF-8
+        run: bundle exec pod install --project-directory=ios
+
+      - name: Write GoogleService-Info.plist
+        env:
+          GOOGLE_SERVICE_PLIST: ${{ secrets.GOOGLE_SERVICE_PLIST_DEV }}
+        run: |
+          if [ -n "$GOOGLE_SERVICE_PLIST" ]; then
+            mkdir -p ios/Firebase/${{ matrix.env }}
+            echo "$GOOGLE_SERVICE_PLIST" | base64 --decode > ios/Firebase/${{ matrix.env }}/GoogleService-Info.plist
+          else
+            echo "::warning::GOOGLE_SERVICE_PLIST_DEV not set — building without Firebase."
+          fi
+
+      - name: Build for simulator
+        env:
+          ENVFILE: .env.${{ matrix.env }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/MobileAppBase.xcworkspace \
+            -scheme "MobileAppBase-Dev" \
+            -configuration "Debug-Dev" \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify

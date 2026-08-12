@@ -1,0 +1,13 @@
+<resources>
+    <!--
+      NOTE: app_name is intentionally NOT declared here.
+      It is generated per product flavor via resValue in identity.gradle
+      (sourced from app.identity.json). Declaring it here too would fail the
+      build with "Duplicate resources".
+    -->
+
+    <!-- Notifee/FCM fallback channel used when a data-only push arrives with
+         no channel specified. Must match DEFAULT_CHANNEL_ID in src/services/notifications. -->
+    <string name="default_notification_channel_id" translatable="false">default</string>
+    <string name="default_notification_channel_name">General</string>
+</resources>

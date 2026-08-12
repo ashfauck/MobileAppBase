@@ -1,0 +1,2 @@
+# Fastlane plugins. Install with: bundle exec fastlane install_plugins
+gem 'fastlane-plugin-sentry'

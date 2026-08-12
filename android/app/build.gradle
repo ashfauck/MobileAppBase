@@ -1,0 +1,186 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+/**
+ * Maps each build variant to the .env file react-native-config should compile in.
+ * Keys are the variant name lowercased with no separators:
+ *   devDebug -> devdebug, stagingRelease -> stagingrelease, ...
+ *
+ * An ENVFILE environment variable (set by the npm scripts) overrides this map,
+ * which is what lets `ENVFILE=.env.staging ... run-android` work.
+ */
+// NOTE: React Native 0.86 adds a third build type, `debugOptimized`, alongside
+// debug and release — so every flavor has THREE variants, not two. A missing
+// entry here silently falls back to `.env`, which is the kind of bug you only
+// notice in a staging build pointing at the dev API.
+project.ext.envConfigFiles = [
+        devdebug                : ".env.dev",
+        devdebugoptimized       : ".env.dev",
+        devrelease              : ".env.dev",
+        stagingdebug            : ".env.staging",
+        stagingdebugoptimized   : ".env.staging",
+        stagingrelease          : ".env.staging",
+        proddebug               : ".env.prod",
+        proddebugoptimized      : ".env.prod",
+        prodrelease             : ".env.prod",
+]
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
+react {
+    /* Autolinking */
+    autolinkLibrariesWithApp()
+
+    // Debug variants skip JS bundling and load from Metro instead.
+    // Every flavor needs its debug variant listed here or `run-android` will
+    // try to bundle and you lose fast refresh.
+    debuggableVariants = [
+            "devDebug", "devDebugOptimized",
+            "stagingDebug", "stagingDebugOptimized",
+            "prodDebug", "prodDebugOptimized",
+    ]
+}
+
+/**
+ * Run Proguard/R8 on release builds to shrink and obfuscate.
+ */
+def enableProguardInReleaseBuilds = true
+
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+/**
+ * Release signing.
+ *
+ * Credentials are read from android/keystore.properties (git-ignored) when the
+ * file exists, otherwise from environment variables so CI can inject them.
+ * If neither is present we fall back to the debug keystore so that a fresh
+ * clone still builds — but such an APK is NOT distributable.
+ */
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKeystore = false
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    hasReleaseKeystore = true
+} else if (System.getenv("ANDROID_KEYSTORE_FILE")) {
+    keystoreProperties.setProperty("storeFile", System.getenv("ANDROID_KEYSTORE_FILE"))
+    keystoreProperties.setProperty("storePassword", System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "")
+    keystoreProperties.setProperty("keyAlias", System.getenv("ANDROID_KEY_ALIAS") ?: "")
+    keystoreProperties.setProperty("keyPassword", System.getenv("ANDROID_KEY_PASSWORD") ?: "")
+    hasReleaseKeystore = true
+}
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    // The Java/Kotlin package. Intentionally NOT flavored — flavoring the
+    // namespace would break generated R/BuildConfig imports in our sources.
+    // The user-visible identifier is applicationId, set in identity.gradle.
+    namespace "com.mobileappbase"
+
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+
+        // Overridable from CI: ./gradlew bundleProdRelease -PversionCode=42
+        versionCode project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1
+        versionName project.hasProperty("versionName") ? project.versionName : "1.0.0"
+
+        // Required for Play Store 64-bit + size; the RN plugin handles ABI splits.
+        resourceConfigurations += ["en", "es"]
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        if (hasReleaseKeystore) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    packagingOptions {
+        // Several native deps ship duplicate licence files.
+        resources.excludes.add("META-INF/{AL2.0,LGPL2.1}")
+    }
+}
+
+/**
+ * applicationId, product flavors, per-flavor app_name and APP_ENVIRONMENT.
+ * GENERATED from app.identity.json — run `npm run identity` after editing it.
+ */
+apply from: "./identity.gradle"
+
+/**
+ * Firebase.
+ *
+ * The google-services plugin hard-fails the build if no google-services.json is
+ * found, which would make a fresh clone of this template unbuildable. We apply
+ * it only once a config exists for at least one flavor. Drop your files at:
+ *
+ *   android/app/src/dev/google-services.json
+ *   android/app/src/staging/google-services.json
+ *   android/app/src/prod/google-services.json
+ *
+ * Each must contain the matching applicationId (com.mobileappbase.dev, etc.).
+ */
+def googleServicesConfigs = [
+        file("google-services.json"),
+        file("src/dev/google-services.json"),
+        file("src/staging/google-services.json"),
+        file("src/prod/google-services.json"),
+]
+
+if (googleServicesConfigs.any { it.exists() }) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.lifecycle("ℹ️  No google-services.json found — Firebase plugin skipped. Push notifications will not work until you add one.")
+}
+
+if (!hasReleaseKeystore) {
+    gradle.taskGraph.whenReady { graph ->
+        if (graph.allTasks.any { it.name.toLowerCase().contains("release") }) {
+            logger.warn("")
+            logger.warn("⚠️  No release keystore found — signing release with the DEBUG key.")
+            logger.warn("   This build cannot be uploaded to Play. See android/keystore.properties.example")
+            logger.warn("")
+        }
+    }
+}
+
+dependencies {
+    implementation("com.facebook.react:react-android")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}

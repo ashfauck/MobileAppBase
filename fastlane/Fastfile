@@ -1,0 +1,238 @@
+# Fastlane configuration for MobileAppBase
+#
+# Run `bundle exec fastlane lanes` to list everything.
+#
+# Environment / flavor is always an explicit argument, never implicit:
+#   bundle exec fastlane ios beta env:staging
+#   bundle exec fastlane android deploy env:prod track:internal
+#
+# Secrets come from environment variables (see fastlane/.env.example and the
+# GitHub Actions workflow). Nothing sensitive is committed.
+
+default_platform(:ios)
+
+# --------------------------------------------------------------------------
+# Shared helpers
+# --------------------------------------------------------------------------
+
+APP_IDENTITY = lambda do
+  require 'json'
+  JSON.parse(File.read(File.join(__dir__, '..', 'app.identity.json')))
+end.call
+
+ENVIRONMENTS = APP_IDENTITY['environments'].keys.freeze
+PROJECT_NAME = APP_IDENTITY['projectName']
+BASE_APP_ID  = APP_IDENTITY['appId']
+
+def resolve_env(options)
+  env = (options[:env] || 'dev').to_s
+  unless ENVIRONMENTS.include?(env)
+    UI.user_error!("Unknown env '#{env}'. Expected one of: #{ENVIRONMENTS.join(', ')}")
+  end
+  env
+end
+
+def app_id_for(env)
+  suffix = APP_IDENTITY['environments'][env]['appIdSuffix'] || ''
+  "#{BASE_APP_ID}#{suffix}"
+end
+
+def ios_scheme_for(env)
+  APP_IDENTITY['environments'][env]['iosScheme']
+end
+
+def android_flavor_for(env)
+  APP_IDENTITY['environments'][env]['androidFlavor']
+end
+
+# Capitalized flavor for Gradle task names: dev -> Dev
+def gradle_flavor_for(env)
+  android_flavor_for(env).capitalize
+end
+
+# --------------------------------------------------------------------------
+# iOS
+# --------------------------------------------------------------------------
+
+platform :ios do
+  desc 'Run JS checks (typecheck, lint, unit + integration tests)'
+  lane :test do
+    sh('cd .. && npm run validate')
+  end
+
+  desc 'Sync signing certificates and provisioning profiles via match (read-only)'
+  lane :signing do |options|
+    env = resolve_env(options)
+
+    # match stores certs+profiles in a private git repo, encrypted. readonly on
+    # CI so a build can never regenerate (and thereby revoke) a team's certs.
+    match(
+      type: options[:type] || 'appstore',
+      app_identifier: [app_id_for(env)],
+      readonly: is_ci,
+      git_url: ENV['MATCH_GIT_URL'],
+      storage_mode: 'git',
+    )
+  end
+
+  desc 'Build a signed .ipa. Usage: fastlane ios build env:staging'
+  lane :build do |options|
+    env = resolve_env(options)
+    scheme = ios_scheme_for(env)
+
+    setup_ci if is_ci
+
+    signing(env: env, type: 'appstore')
+
+    # react-native-config reads ENVFILE at build time.
+    ENV['ENVFILE'] = ".env.#{env}"
+
+    increment_build_number(
+      build_number: options[:build_number] || latest_testflight_build_number(
+        app_identifier: app_id_for(env),
+        initial_build_number: 0,
+      ) + 1,
+      xcodeproj: "ios/#{PROJECT_NAME}.xcodeproj",
+    )
+
+    build_app(
+      workspace: "ios/#{PROJECT_NAME}.xcworkspace",
+      scheme: scheme,
+      configuration: "Release-#{env.capitalize}",
+      export_method: 'app-store',
+      output_directory: 'build/ios',
+      output_name: "#{PROJECT_NAME}-#{env}.ipa",
+      clean: true,
+      export_options: {
+        provisioningProfiles: {
+          app_id_for(env) => "match AppStore #{app_id_for(env)}",
+        },
+      },
+    )
+  end
+
+  desc 'Build and upload to TestFlight. Usage: fastlane ios beta env:staging'
+  lane :beta do |options|
+    env = resolve_env(options)
+
+    build(options)
+
+    upload_to_testflight(
+      app_identifier: app_id_for(env),
+      ipa: "build/ios/#{PROJECT_NAME}-#{env}.ipa",
+      # Don't block the CI job for ~15 minutes waiting on Apple's processing.
+      skip_waiting_for_build_processing: true,
+      changelog: options[:changelog] || last_git_commit[:message],
+    )
+
+    upload_sentry_symbols(env: env) if ENV['SENTRY_AUTH_TOKEN']
+  end
+
+  desc 'Promote a TestFlight build to App Store review (prod only)'
+  lane :release do |options|
+    env = resolve_env(options)
+    UI.user_error!('release is prod-only') unless env == 'prod'
+
+    upload_to_app_store(
+      app_identifier: app_id_for(env),
+      ipa: "build/ios/#{PROJECT_NAME}-#{env}.ipa",
+      submit_for_review: true,
+      automatic_release: false,
+      force: true, # skip the HTML report confirmation prompt
+      precheck_include_in_app_purchases: false,
+      submission_information: {
+        # Required since iOS 14 or the submission is rejected automatically.
+        add_id_info_uses_idfa: false,
+      },
+    )
+  end
+
+  desc 'Upload dSYMs to Sentry so crash reports are symbolicated'
+  lane :upload_sentry_symbols do |options|
+    env = resolve_env(options)
+    sentry_upload_dsym(
+      auth_token: ENV['SENTRY_AUTH_TOKEN'],
+      org_slug: ENV['SENTRY_ORG'],
+      project_slug: ENV['SENTRY_PROJECT'],
+    )
+    UI.success("Uploaded dSYMs for #{env}")
+  end
+end
+
+# --------------------------------------------------------------------------
+# Android
+# --------------------------------------------------------------------------
+
+platform :android do
+  desc 'Run JS checks'
+  lane :test do
+    sh('cd .. && npm run validate')
+  end
+
+  desc 'Build a debug APK. Usage: fastlane android build_debug env:dev'
+  lane :build_debug do |options|
+    env = resolve_env(options)
+    ENV['ENVFILE'] = ".env.#{env}"
+
+    gradle(
+      project_dir: 'android',
+      task: 'assemble',
+      flavor: gradle_flavor_for(env),
+      build_type: 'Debug',
+    )
+  end
+
+  desc 'Build a signed AAB. Usage: fastlane android build env:prod'
+  lane :build do |options|
+    env = resolve_env(options)
+    ENV['ENVFILE'] = ".env.#{env}"
+
+    # Play requires a strictly increasing versionCode. Using the CI run number
+    # is simpler and more reliable than querying Play for the last one.
+    version_code = options[:build_number] || ENV['BUILD_NUMBER'] || 1
+
+    gradle(
+      project_dir: 'android',
+      task: 'bundle',
+      flavor: gradle_flavor_for(env),
+      build_type: 'Release',
+      properties: {
+        'versionCode' => version_code.to_i,
+        # Injected by the signing block in app/build.gradle.
+        'android.injected.signing.store.file' => ENV['ANDROID_KEYSTORE_FILE'],
+        'android.injected.signing.store.password' => ENV['ANDROID_KEYSTORE_PASSWORD'],
+        'android.injected.signing.key.alias' => ENV['ANDROID_KEY_ALIAS'],
+        'android.injected.signing.key.password' => ENV['ANDROID_KEY_PASSWORD'],
+      }.compact,
+    )
+  end
+
+  desc 'Build and upload to Play. Usage: fastlane android deploy env:prod track:internal'
+  lane :deploy do |options|
+    env = resolve_env(options)
+    track = options[:track] || 'internal'
+
+    build(options)
+
+    upload_to_play_store(
+      package_name: app_id_for(env),
+      track: track,
+      aab: lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
+      # A staged rollout for production; full release for test tracks.
+      rollout: track == 'production' ? '0.1' : nil,
+      release_status: track == 'production' ? 'inProgress' : 'completed',
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      json_key: ENV['PLAY_STORE_JSON_KEY_PATH'],
+    )
+  end
+end
+
+# --------------------------------------------------------------------------
+# Hooks
+# --------------------------------------------------------------------------
+
+error do |lane, exception, options|
+  UI.error("Lane #{lane} failed: #{exception.message}")
+end

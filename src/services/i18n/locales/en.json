@@ -1,0 +1,94 @@
+{
+  "common": {
+    "appName": "AppBase",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "retry": "Try again",
+    "loading": "Loading…",
+    "somethingWentWrong": "Something went wrong"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
+    "password": "Password",
+    "passwordPlaceholder": "••••••••",
+    "forgotPassword": "Forgot password?",
+    "welcomeBack": "Welcome back",
+    "signInSubtitle": "Sign in to continue to {{appName}}",
+    "errors": {
+      "emailRequired": "Enter your email address",
+      "emailInvalid": "That doesn't look like a valid email",
+      "passwordRequired": "Enter your password",
+      "passwordTooShort": "Password must be at least 8 characters"
+    },
+    "demoHint": "Demo mode: any email and a password of 8+ characters will sign you in."
+  },
+  "home": {
+    "title": "Home",
+    "greeting": "Hello, {{name}}",
+    "environmentCard": "Build information"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "addPlaceholder": "What needs doing?",
+    "add": "Add",
+    "empty": "No tasks yet. Add one above.",
+    "clearCompleted": "Clear completed",
+    "filters": {
+      "all": "All",
+      "active": "Active",
+      "completed": "Done"
+    },
+    "count_one": "{{count}} task",
+    "count_other": "{{count}} tasks"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "permission": {
+      "granted": "Notifications enabled",
+      "denied": "Notifications blocked",
+      "provisional": "Delivered quietly",
+      "unavailable": "Not available",
+      "request": "Enable notifications",
+      "openSettings": "Open settings"
+    },
+    "token": "Device token",
+    "copyToken": "Copy token",
+    "copied": "Copied to clipboard",
+    "sendTest": "Send a test notification",
+    "categories": {
+      "default": "Plain notification",
+      "invitation": "Invitation (Accept / Decline)",
+      "reminder": "Reminder (Done / Snooze)",
+      "message": "Message (inline reply)"
+    },
+    "detailTitle": "Notification {{id}}"
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance",
+    "theme": {
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "language": "Language",
+    "languages": {
+      "en": "English",
+      "es": "Spanish"
+    },
+    "about": "About",
+    "version": "Version",
+    "environment": "Environment",
+    "bundleId": "Bundle ID"
+  },
+  "errors": {
+    "boundaryTitle": "This screen ran into a problem",
+    "boundaryBody": "The error has been reported. You can try again, or restart the app if it keeps happening.",
+    "reload": "Try again"
+  }
+}

@@ -1,0 +1,94 @@
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
+
+# CocoaPods must be told the :debug/:release nature of every custom build
+# configuration, otherwise it assumes :release and you get optimized,
+# non-debuggable pods in your dev builds.
+project 'MobileAppBase', {
+  'Debug-Dev'       => :debug,
+  'Debug-Staging'   => :debug,
+  'Debug-Prod'      => :debug,
+  'Release-Dev'     => :release,
+  'Release-Staging' => :release,
+  'Release-Prod'    => :release,
+}
+
+# react-native-firebase v26 resolves firebase-ios-sdk through Swift Package
+# Manager by default. SPM products are "automatic" libraries, so each RNFB pod
+# embeds its own copy of Firebase — which collides at link time under the
+# static linkage that React Native uses by default.
+#
+# Two supported ways out (see node_modules/@react-native-firebase/app/firebase_spm.rb):
+#   a) use_frameworks! :linkage => :dynamic  — keeps SPM, but converts EVERY pod
+#      to a dynamic framework. That regresses cold-start time and still breaks a
+#      handful of RN libraries that assume static linkage.
+#   b) $RNFirebaseDisableSPM = true          — falls back to the CocoaPods
+#      distribution of firebase-ios-sdk and keeps RN's default static linkage.
+#
+# (b) is the safer default for a template. Flip it only if you specifically need
+# the SPM distribution.
+$RNFirebaseDisableSPM = true
+
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
+  # Firebase must be built as a static framework when use_frameworks! is on,
+  # otherwise you get duplicate-symbol / missing-module errors.
+  $RNFirebaseAsStaticFramework = true
+end
+
+target 'MobileAppBase' do
+  config = use_native_modules!
+
+  # Firebase's Swift pods import these Objective-C/C pods, which don't define
+  # module maps of their own. Without modular headers CocoaPods refuses the
+  # install with "The Swift pod `FirebaseCoreInternal` depends upon
+  # `GoogleUtilities`, which does not define modules."
+  #
+  # Scoped to these pods rather than a global `use_modular_headers!`, which
+  # would force module maps on every React Native pod and is a well-known way
+  # to break the build.
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'FirebaseCore', :modular_headers => true
+  pod 'FirebaseCoreInternal', :modular_headers => true
+  pod 'FirebaseCoreExtension', :modular_headers => true
+  pod 'FirebaseInstallations', :modular_headers => true
+  pod 'GoogleDataTransport', :modular_headers => true
+  pod 'nanopb', :modular_headers => true
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      # :ccache_enabled => true
+    )
+
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Some pods still declare a deployment target below what the current
+        # Xcode supports, which produces a wall of warnings and, on newer
+        # toolchains, hard errors.
+        if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < min_ios_version_supported.to_f
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+        end
+
+        # Xcode 15+ links these implicitly; leaving it on breaks some pods.
+        config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      end
+    end
+  end
+end

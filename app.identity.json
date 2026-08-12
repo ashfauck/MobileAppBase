@@ -1,0 +1,31 @@
+{
+  "$comment": [
+    "SINGLE SOURCE OF TRUTH for app id + app name across iOS and Android.",
+    "Change the values here, run `npm run identity`, and both native projects update.",
+    "Nothing else in the repo should hardcode a bundle id or a display name."
+  ],
+
+  "appId": "com.mobileappbase",
+  "projectName": "MobileAppBase",
+
+  "environments": {
+    "dev": {
+      "appIdSuffix": ".dev",
+      "displayName": "AppBase Dev",
+      "androidFlavor": "dev",
+      "iosScheme": "MobileAppBase-Dev"
+    },
+    "staging": {
+      "appIdSuffix": ".staging",
+      "displayName": "AppBase Stg",
+      "androidFlavor": "staging",
+      "iosScheme": "MobileAppBase-Staging"
+    },
+    "prod": {
+      "appIdSuffix": "",
+      "displayName": "AppBase",
+      "androidFlavor": "prod",
+      "iosScheme": "MobileAppBase"
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "common": {
+    "appName": "AppBase",
+    "ok": "Aceptar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "retry": "Reintentar",
+    "loading": "Cargando…",
+    "somethingWentWrong": "Algo salió mal"
+  },
+  "auth": {
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "email": "Correo electrónico",
+    "emailPlaceholder": "tu@ejemplo.com",
+    "password": "Contraseña",
+    "passwordPlaceholder": "••••••••",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "welcomeBack": "Bienvenido de nuevo",
+    "signInSubtitle": "Inicia sesión para continuar en {{appName}}",
+    "errors": {
+      "emailRequired": "Introduce tu correo electrónico",
+      "emailInvalid": "Ese correo no parece válido",
+      "passwordRequired": "Introduce tu contraseña",
+      "passwordTooShort": "La contraseña debe tener al menos 8 caracteres"
+    },
+    "demoHint": "Modo demo: cualquier correo y una contraseña de 8+ caracteres funcionan."
+  },
+  "home": {
+    "title": "Inicio",
+    "greeting": "Hola, {{name}}",
+    "environmentCard": "Información de compilación"
+  },
+  "tasks": {
+    "title": "Tareas",
+    "addPlaceholder": "¿Qué hay que hacer?",
+    "add": "Añadir",
+    "empty": "Aún no hay tareas. Añade una arriba.",
+    "clearCompleted": "Borrar completadas",
+    "filters": {
+      "all": "Todas",
+      "active": "Activas",
+      "completed": "Hechas"
+    },
+    "count_one": "{{count}} tarea",
+    "count_other": "{{count}} tareas"
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "permission": {
+      "granted": "Notificaciones activadas",
+      "denied": "Notificaciones bloqueadas",
+      "provisional": "Entrega silenciosa",
+      "unavailable": "No disponible",
+      "request": "Activar notificaciones",
+      "openSettings": "Abrir ajustes"
+    },
+    "token": "Token del dispositivo",
+    "copyToken": "Copiar token",
+    "copied": "Copiado al portapapeles",
+    "sendTest": "Enviar notificación de prueba",
+    "categories": {
+      "default": "Notificación simple",
+      "invitation": "Invitación (Aceptar / Rechazar)",
+      "reminder": "Recordatorio (Hecho / Posponer)",
+      "message": "Mensaje (respuesta rápida)"
+    },
+    "detailTitle": "Notificación {{id}}"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "appearance": "Apariencia",
+    "theme": {
+      "system": "Sistema",
+      "light": "Claro",
+      "dark": "Oscuro"
+    },
+    "language": "Idioma",
+    "languages": {
+      "en": "Inglés",
+      "es": "Español"
+    },
+    "about": "Acerca de",
+    "version": "Versión",
+    "environment": "Entorno",
+    "bundleId": "ID del paquete"
+  },
+  "errors": {
+    "boundaryTitle": "Esta pantalla tuvo un problema",
+    "boundaryBody": "El error fue reportado. Puedes reintentar o reiniciar la app si continúa.",
+    "reload": "Reintentar"
+  }
+}

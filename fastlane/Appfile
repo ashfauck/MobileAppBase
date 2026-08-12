@@ -1,0 +1,12 @@
+# Values are read from the environment so this file stays free of account data
+# and works unchanged across dev/staging/prod.
+#
+# app_identifier is deliberately NOT set here: every lane passes it explicitly
+# per environment (from app.identity.json), so a staging build can never be
+# uploaded to the production App Store record by accident.
+
+apple_id(ENV['APPLE_ID'])                       # Apple Developer account email
+itc_team_id(ENV['APP_STORE_CONNECT_TEAM_ID'])   # App Store Connect team
+team_id(ENV['DEVELOPER_PORTAL_TEAM_ID'])        # Developer Portal team
+
+json_key_file(ENV['PLAY_STORE_JSON_KEY_PATH'])  # Google Play service account

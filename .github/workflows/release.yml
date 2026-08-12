@@ -1,0 +1,209 @@
+name: Release
+
+# Signed store builds. Triggered manually, or by a version tag.
+#
+#   v1.2.3          -> prod  (TestFlight + Play internal)
+#   v1.2.3-staging  -> staging
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which environment to ship
+        required: true
+        default: staging
+        type: choice
+        options: [staging, prod]
+      platform:
+        description: Which platform(s)
+        required: true
+        default: both
+        type: choice
+        options: [ios, android, both]
+      track:
+        description: 'Play track (android only)'
+        required: false
+        default: internal
+        type: choice
+        options: [internal, alpha, beta, production]
+  push:
+    tags: ['v*']
+
+concurrency:
+  # Never run two store uploads at once — Play and TestFlight both reject
+  # concurrent uploads of the same build number.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22.20.0'
+  JAVA_VERSION: '17'
+
+jobs:
+  # Turns the tag or the manual inputs into a single set of outputs so the
+  # build jobs below don't each re-implement the same conditional logic.
+  resolve:
+    name: Resolve target
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.out.outputs.environment }}
+      ios: ${{ steps.out.outputs.ios }}
+      android: ${{ steps.out.outputs.android }}
+      track: ${{ steps.out.outputs.track }}
+    steps:
+      - id: out
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENVIRONMENT="${{ inputs.environment }}"
+            PLATFORM="${{ inputs.platform }}"
+            TRACK="${{ inputs.track }}"
+          else
+            case "${GITHUB_REF_NAME}" in
+              *-staging) ENVIRONMENT=staging ;;
+              *)         ENVIRONMENT=prod ;;
+            esac
+            PLATFORM=both
+            TRACK=internal
+          fi
+
+          echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "track=$TRACK"             >> "$GITHUB_OUTPUT"
+          [ "$PLATFORM" = "ios"     ] || [ "$PLATFORM" = "both" ] && echo "ios=true"     >> "$GITHUB_OUTPUT" || echo "ios=false"     >> "$GITHUB_OUTPUT"
+          [ "$PLATFORM" = "android" ] || [ "$PLATFORM" = "both" ] && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
+
+  # ------------------------------------------------------------------- iOS --
+  ios:
+    name: iOS → TestFlight (${{ needs.resolve.outputs.environment }})
+    needs: resolve
+    if: needs.resolve.outputs.ios == 'true'
+    runs-on: macos-15
+    timeout-minutes: 90
+    # Gate on a GitHub Environment so production can require manual approval.
+    environment: ${{ needs.resolve.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - run: sudo xcode-select -switch /Applications/Xcode_26.app
+
+      - run: npm ci
+
+      - name: Write GoogleService-Info.plist
+        env:
+          PLIST: ${{ secrets.GOOGLE_SERVICE_PLIST }}
+        run: |
+          mkdir -p ios/Firebase/${{ needs.resolve.outputs.environment }}
+          echo "$PLIST" | base64 --decode > ios/Firebase/${{ needs.resolve.outputs.environment }}/GoogleService-Info.plist
+
+      - name: Install pods
+        env:
+          LANG: en_US.UTF-8
+        run: bundle exec pod install --project-directory=ios
+
+      - name: Build and upload to TestFlight
+        env:
+          # App Store Connect API key — preferred over an Apple ID + app-specific
+          # password because it isn't tied to a person and never hits 2FA.
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          DEVELOPER_PORTAL_TEAM_ID: ${{ secrets.DEVELOPER_PORTAL_TEAM_ID }}
+          APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          # Read access to the private match certificates repo.
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          # Unique, monotonically increasing build number.
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          bundle exec fastlane ios beta \
+            env:${{ needs.resolve.outputs.environment }} \
+            build_number:${{ github.run_number }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-${{ needs.resolve.outputs.environment }}-ipa
+          path: build/ios/*.ipa
+          retention-days: 30
+
+  # --------------------------------------------------------------- Android --
+  android:
+    name: Android → Play ${{ needs.resolve.outputs.track }} (${{ needs.resolve.outputs.environment }})
+    needs: resolve
+    if: needs.resolve.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ needs.resolve.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - run: npm ci
+
+      - name: Write signing keystore and service account
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PLAY_JSON: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          echo "$PLAY_JSON"       | base64 --decode > "$RUNNER_TEMP/play-service-account.json"
+          mkdir -p android/app/src/${{ needs.resolve.outputs.environment }}
+          echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/src/${{ needs.resolve.outputs.environment }}/google-services.json
+
+      - name: Build and upload to Play
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_STORE_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          bundle exec fastlane android deploy \
+            env:${{ needs.resolve.outputs.environment }} \
+            track:${{ needs.resolve.outputs.track }} \
+            build_number:${{ github.run_number }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-${{ needs.resolve.outputs.environment }}-aab
+          path: android/app/build/outputs/bundle/**/*.aab
+          retention-days: 30
+
+      - name: Clean up secrets from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/play-service-account.json"

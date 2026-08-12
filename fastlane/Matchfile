@@ -1,0 +1,32 @@
+# fastlane match — shared, encrypted code signing.
+#
+# Why match instead of manual certificates:
+#   Certificates and provisioning profiles are stored encrypted in a private git
+#   repo. Every developer and every CI runner pulls the SAME identity, which
+#   removes the classic "works on my Mac, fails on CI" signing failure and stops
+#   the team from burning through Apple's 3-distribution-certificate limit.
+#
+# First-time setup (run ONCE, by one person, locally):
+#   bundle exec fastlane match init
+#   bundle exec fastlane match development  --app_identifier "com.mobileappbase.dev,com.mobileappbase.staging,com.mobileappbase"
+#   bundle exec fastlane match appstore     --app_identifier "com.mobileappbase.dev,com.mobileappbase.staging,com.mobileappbase"
+#
+# On CI, match runs readonly (see the Fastfile) so a build can never regenerate
+# and thereby revoke the team's certificates.
+
+git_url(ENV['MATCH_GIT_URL'])
+storage_mode('git')
+type('development')
+
+# All three bundle ids are managed together.
+app_identifier([
+  'com.mobileappbase.dev',
+  'com.mobileappbase.staging',
+  'com.mobileappbase',
+])
+
+username(ENV['APPLE_ID'])
+team_id(ENV['DEVELOPER_PORTAL_TEAM_ID'])
+
+# Never let CI create or modify certificates.
+readonly(ENV['CI'] == 'true')

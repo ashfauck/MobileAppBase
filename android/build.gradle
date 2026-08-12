@@ -1,0 +1,29 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.1.20"
+
+        // Firebase / Google Services plugin
+        googleServicesVersion = "4.5.0"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+
+        // Processes google-services.json into Firebase config resources.
+        // Applied conditionally in app/build.gradle so the project still builds
+        // before you've added a Firebase config.
+        classpath("com.google.gms:google-services:${googleServicesVersion}")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
