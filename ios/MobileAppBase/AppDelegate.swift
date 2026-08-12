@@ -98,7 +98,13 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 
   /// Hand the native launch screen over to JS so it can stay visible until the
   /// first real screen has rendered (hidden in src/app/App.tsx).
-  override func customize(_ rootView: UIView) {
+  ///
+  /// NOTE the parameter type: the Objective-C hook is
+  /// `-[RCTUIConfiguratorProtocol customizeRootView:(RCTRootView *)]`, which
+  /// Swift imports as `customize(_: RCTRootView)`. Declaring the parameter as
+  /// `UIView` compiles as a *new* method rather than an override, so the
+  /// splash screen is never handed to JS and the app hangs on the launch image.
+  override func customize(_ rootView: RCTRootView) {
     super.customize(rootView)
     RNBootSplash.initWithStoryboard("BootSplash", rootView: rootView)
   }
