@@ -174,6 +174,7 @@ bundle exec fastlane ios release env:prod
 | Error | Fix |
 |---|---|
 | `Unicode Normalization not appropriate for ASCII-8BIT` | No UTF-8 locale. `export LANG=en_US.UTF-8` before `pod install`. Hits any path with spaces. |
+| `Unable to find a destination matching...` / `Found no destinations for the scheme` — and `-showdestinations` lists only iOS *devices* | The simulator runtime matching your Xcode's SDK isn't installed, so there are **zero** eligible simulator destinations. Confusingly, older installed runtimes are not offered either. Fix with `xcodebuild -downloadPlatform iOS` (~8.5 GB) or Xcode → Settings → Components. The catalog fetch is flaky — a `Download failed ... Code 53` on the first attempt usually succeeds on a retry. |
 | `The Swift pod FirebaseCoreInternal depends upon GoogleUtilities, which does not define modules` | The `:modular_headers => true` lines in the Podfile were removed. Restore them. |
 | `[react-native-firebase] SPM + static linkage is not supported` | `$RNFirebaseDisableSPM = true` was removed from the Podfile. |
 | `No such module 'RNBootSplash'` / `FirebaseCore` | Run `npm run pods`. You opened the `.xcodeproj` instead of the `.xcworkspace`. |
